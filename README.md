@@ -1,8 +1,12 @@
 # CEPR-data-visualizer
 Code and help file for the CEPR Visualization tool
 
+# Files
+app.r is the source code for the shiny app
+CEPR_reduced is the reduced dataset taken from the original CEPR March CPS Extract.  This is the dataset used by the app.
+
 # Data
-The data used in the CEPR Visualizer is the 2019 March CPS Extracts obtained from the Center for Economic and Policy Research.  The visualizer is built around this dataset, but can still be modified to accept a different dataset.  The code for the application is available here, to change the dataset you will need to follow a few steps:
+The data used in the CEPR Visualizer is the 2018 March CPS Extracts obtained from the Center for Economic and Policy Research.  The visualizer is built around this dataset, but can still be modified to accept a different dataset.  The code for the application is available here, to change the dataset you will need to follow a few steps:
 1. Change line 34 of the code to point to your new dataset, I highly recommend using a dataset that is limited to the variables that you want to give students to analyze
 2. Modify line 43 to the variables present in your dataset that you want to feed into the menus
 3. Comment out lines 46 through 99
