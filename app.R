@@ -4,7 +4,7 @@
 #Title changed to CEPR Visualization App
 #MAD removed
 #Added log transormation
-#troubleshooing boxplots
+#troubleshooting boxplots
 #Variable: incp_wag, Sex, educ92, occly2_03, age converted to: Earnings, Sex, Education, Occupation, Age, Race
 #Plots: histograms, scatterplots, boxplots, line, stacked bar
 #Tables: Histograms, Scatterplots
@@ -119,7 +119,7 @@ ui <- fluidPage(
                 keyvariables),
     
     #Change plot type, currently just histogram(or bar if discrete), scatterplot, boxplot, and line(useless on this tab)
-    selectInput('plot_type', 'Select Plot Type',  c('Histogram (x variable)', 
+    selectInput('plot_type', 'Select Plot Type',  c('Histogram or Bar Graph (x variable)', 
                                                     'Scatterplot (x and y variables)', 
                                                     'Boxplot (x and y variables)', 
                                                     'Line Plot (x and y variables)',
@@ -160,7 +160,7 @@ ui <- fluidPage(
                                   "empl == 1",
                                   "Occupation != 53",
                                   "Age >= 18",
-                                  "empl == 1 & Occupation != 53"),
+                                  "empl == 1 & Occupation != 53 & Earnings > 0"),
                  inline=T),
     
     #Allow for selection of career fields
@@ -171,7 +171,7 @@ ui <- fluidPage(
     #Slider filters max wage in dataset, meant to allow for "zoom" on the plots
     sliderInput('filtermaxwage',
                     'Filter max wage?',
-                    min = 0, max = 1000000, value = 1000000),
+                    min = 0, max = 1000000, value = 1000000, step = 10000),
     
     #Select to use log wages
     checkboxInput('log','Use log wages?',value = FALSE),
@@ -179,8 +179,19 @@ ui <- fluidPage(
     shiny::conditionalPanel(
       condition = "input.plot_type == 'Scatterplot (x and y variables)' & input.x == 'Age'",
       checkboxInput('agesq', "Add age squared?", value = FALSE)
-    )
+    ),
     
+    radioButtons('sample', 
+                 'Take a random sample?',
+                 choices = c("No","Yes")),
+    shiny::conditionalPanel(
+      condition = "input.sample == 'Yes'",
+      sliderInput('nsamples',
+                  'Number of samples: ',
+                  min = 1,
+                  max = 2000,
+                  value = 100)
+    )
  ),
  
  #Set Main Panel, will only be used for plot output
@@ -197,11 +208,8 @@ ui <- fluidPage(
 # Define server logic required to draw a plots
 server <- function(input, output, session) {
   
-  
-  
 
-  #mediany <- reactiveValues(data = NULL)
-  
+
     #function to set the plots to the output
     output$draw_plots <- renderPlot({
       
@@ -225,6 +233,10 @@ server <- function(input, output, session) {
         CEPRdata <- CEPRdata %>%
           mutate(Earnings = log(Earnings + 1))
       }
+      if(input$sample == "Yes"){
+        CEPRdata <- CEPRdata %>%
+          sample_n(.,input$nsamples)
+      }
       
       
     #Control sequence to set the plot type based off inputted plot type and allow for filtering    
@@ -241,18 +253,21 @@ server <- function(input, output, session) {
         #creates the plot, x and y are set by inputs, color subsets by gender
         ggplot(aes_string(x = input$x, 
                           y = input$y, 
-                         color = input$fill)) + 
+                         group = input$fill)) + 
                           geom_point() +
-                          geom_smooth(method=lm)
+                          geom_smooth(method="lm", se = FALSE) +
+          coord_cartesian(ylim = c(0,max(CEPRdata$Earnings)))
       }
         #boxplot        
         else if(input$plot_type == 'Boxplot (x and y variables)' & input$scaled == FALSE){
+          
                plot_selected <- CEPRdata %>% 
                    #filter(Earnings <= input$filtermaxwage) %>%
                    ggplot(aes_string(x = input$x, 
                                      y = input$y, 
-                                 fill = input$fill)) +  
-                    geom_boxplot() 
+                                     group = input$x,
+                                     fill = input$fill)) +  
+                    geom_boxplot()
         }
         #Line plot
         else if(input$plot_type == 'Line Plot (x and y variables)'){ 
@@ -264,7 +279,7 @@ server <- function(input, output, session) {
                     geom_line()
             }
         #Histograms, has two controls first will set the plots to a bar type for factor variables    
-        else if(input$plot_type == 'Histogram (x variable)' & 
+        else if(input$plot_type == 'Histogram or Bar Graph (x variable)' & 
                 input$x != 'Age' &
                 input$x != 'Earnings' &
                 input$scaled == FALSE){
@@ -276,7 +291,7 @@ server <- function(input, output, session) {
                     
         }
         #Second histogram type for continuous variables
-        else if(input$plot_type == 'Histogram (x variable)' & 
+        else if(input$plot_type == 'Histogram or Bar Graph (x variable)' & 
                 class(input$x) != 'factor' &
                 input$scaled == FALSE){
            plot_selected <- CEPRdata %>% 
@@ -295,8 +310,9 @@ server <- function(input, output, session) {
         #filter(Earnings <= input$filtermaxwage) %>%
         ggplot(aes_string(x = input$x, 
                           y = input$y, 
-                          fill = input$fill)) +  
-        geom_boxplot() 
+                          group = input$x
+                          )) +  
+        geom_boxplot(aes_string(fill = input$fill)) 
     }
     #Line plot Medians, using controls to separate out subsetting by gender
     
@@ -308,7 +324,9 @@ server <- function(input, output, session) {
         ggplot(aes_string(x = input$x, 
                           y = "Mean_or_Median", 
                           color = input$fill)) +  
-        geom_line()
+        geom_line()+
+        ylab(paste(if_else(input$scaled== "mean", "Mean", "Median"), " ", input$y)) +
+        coord_cartesian(ylim = c(0,max(CEPRdata$Earnings)))
     
     }
     else if(input$plot_type == 'Line Plot (x and y variables)' & input$scaled != FALSE & input$fill == "NULL"){
@@ -318,7 +336,9 @@ server <- function(input, output, session) {
         summarise_(Mean_or_Median = paste(input$scaled,"(",input$y,")")) %>%
         ggplot(aes_string(x = input$x, 
                           y = "Mean_or_Median")) +  
-        geom_line()
+        geom_line()+
+        ylab(paste(if_else(input$scaled== "mean", "Mean", "Median"), " ", input$y))+
+        coord_cartesian(ylim = c(0,max(CEPRdata$Earnings)))
     }
     else if(input$plot_type == 'Scatterplot (x and y variables)' & input$scaled != FALSE & input$fill == "NULL"){
       plot_selected <- CEPRdata %>% 
@@ -328,7 +348,9 @@ server <- function(input, output, session) {
         ggplot(aes_string(x = input$x, 
                           y = "Mean_or_Median")) +  
         geom_point()+
-        geom_smooth(method=lm, se=FALSE)
+        geom_smooth(method=lm, se=FALSE)+
+        ylab(paste(if_else(input$scaled== "mean", "Mean", "Median"), " ", input$y))+
+        coord_cartesian(ylim = c(0,max(CEPRdata$Earnings)))
     }
     else if(input$plot_type == 'Scatterplot (x and y variables)' & input$scaled != FALSE & !is.null(input$fill)){
       plot_selected <- CEPRdata %>% 
@@ -337,9 +359,11 @@ server <- function(input, output, session) {
         summarise_(Mean_or_Median = paste(input$scaled,"(",input$y,")")) %>%
         ggplot(aes_string(x = input$x, 
                           y = "Mean_or_Median",
-                          color = input$fill)) +  
+                          group = input$fill)) +  
         geom_point()+
-        geom_smooth(method=lm, se=FALSE)
+        geom_smooth(method=lm, se=FALSE)+
+        ylab(paste(if_else(input$scaled== "mean", "Mean", "Median"), " ", input$y))+
+        coord_cartesian(ylim = c(0,max(CEPRdata$Earnings)))
     }
     else if(input$plot_type == 'Stacked Bar (x and y variable)'){
       plot_selected <- CEPRdata %>%
@@ -350,7 +374,7 @@ server <- function(input, output, session) {
     }
 #Remainder plots don't make sense, but going to allow them to be user created anyways  
     
-    else if(input$plot_type == 'Histogram (x variable)' & input$scaled != FALSE & input$fill != "NULL"){
+    else if(input$plot_type == 'Histogram or Bar Graph (x variable)' & input$scaled != FALSE & input$fill != "NULL"){
       plot_selected <- CEPRdata %>% 
         group_by_(input$x, input$fill) %>%
         summarise_(Mean_or_Median = paste(input$scaled,"(",input$y,")")) %>%
@@ -367,7 +391,9 @@ server <- function(input, output, session) {
         summarise_(Mean_or_Median = paste(input$scaled,"(",input$y,")")) %>%
         ggplot(aes_string(x = input$x, 
                           y = "Mean_or_Median")) +  
-        geom_line()
+        geom_line()+
+        ylab(paste(if_else(input$scaled== "mean", "Mean", "Median"), " ", input$y))+
+        coord_cartesian(ylim = c(0,max(CEPRdata$Earnings)))
     }
     else if(input$plot_type == 'Scatterplot (x and y variables)' & input$scaled != FALSE & input$fill == "NULL"){
       plot_selected <- CEPRdata %>% 
@@ -377,7 +403,8 @@ server <- function(input, output, session) {
         ggplot(aes_string(x = input$x, 
                           y = "Mean_or_Median")) +  
         geom_point()+
-        geom_smooth(method=lm, se=FALSE)
+        geom_smooth(method=lm, se=FALSE)+
+        coord_cartesian(ylim = c(0,max(CEPRdata$Earnings)))
     }
     else if(input$plot_type == 'Scatterplot (x and y variables)' & input$scaled != FALSE & !is.null(input$fill)){
       plot_selected <- CEPRdata %>% 
@@ -386,9 +413,10 @@ server <- function(input, output, session) {
         summarise_(Mean_or_Median = paste(input$scaled,"(",input$y,")")) %>%
         ggplot(aes_string(x = input$x, 
                           y = "Mean_or_Median",
-                          color = input$fill)) +  
+                          group = input$fill)) +  
         geom_point()+
-        geom_smooth(method=lm, se=FALSE)
+        geom_smooth(method=lm, se=FALSE)+
+        coord_cartesian(ylim = c(0,max(CEPRdata$Earnings)))
     }
     else if(input$plot_type == 'Stacked Bar (x and y variable)'){
       plot_selected <- CEPRdata %>%
@@ -405,7 +433,11 @@ server <- function(input, output, session) {
       theme(panel.grid.major=element_blank(),
             panel.grid.minor=element_blank())
     }
-      plot_selected
+    if(input$fill != "NULL"){
+      plot_selected <- plot_selected + facet_wrap(input$fill)
+    }
+    
+    plot_selected
     })
     
     output$dynamicTable <- renderTable({
@@ -434,7 +466,7 @@ server <- function(input, output, session) {
       tabulate <- 
         if(input$fill == "NULL"){
       #Histogram for continuous variables
-          if(input$plot_type == 'Histogram (x variable)' & input$x != "Age" & input$x != "Earnings"){
+          if(input$plot_type == 'Histogram or Bar Graph (x variable)' & input$x != "Age" & input$x != "Earnings"){
             CEPRdata %>%
               group_by_(input$x) %>%
               summarise(Count = n()) %>%
@@ -442,7 +474,7 @@ server <- function(input, output, session) {
           
           }
           #Histogram table for factor variables
-          else if(input$plot_type == 'Histogram (x variable)' & class(input$x) != 'factor'){  
+          else if(input$plot_type == 'Histogram or Bar Graph (x variable)' & class(input$x) != 'factor'){  
             CEPRdata %>% 
               summarise(Min = min(get(input$x)),
                         Mean = mean(get(input$x)), 
@@ -483,14 +515,14 @@ server <- function(input, output, session) {
           }
       #Below tables are for when the data is separated by a factor
       #Histogram separated by factor and factor variables
-      else if(input$plot_type == 'Histogram (x variable)' & input$x != "Age" & input$x != "Earnings"){  
+      else if(input$plot_type == 'Histogram or Bar Graph (x variable)' & input$x != "Age" & input$x != "Earnings"){  
           CEPRdata %>% 
             group_by_(input$x,input$fill) %>%
             summarise(Count = n()) %>%
             mutate(Proportion = Count / sum(Count))
       }
       #Histogram table separated by factor and continuous variables
-      else if(input$plot_type == 'Histogram (x variable)' & class(input$x) != 'factor'){  
+      else if(input$plot_type == 'Histogram or Bar Graph (x variable)' & class(input$x) != 'factor'){  
         CEPRdata %>% 
           group_by_(input$fill) %>%
           summarise(Min = min(get(input$x), na.rm = T),
@@ -502,10 +534,10 @@ server <- function(input, output, session) {
       #Scatterplot separated by factor
       else if(input$plot_type == 'Scatterplot (x and y variables)'){
         if(input$agesq == TRUE){
-          regterms <- c(input$x, input$fill, 'agesq')
+          regterms <- c(input$x, input$fill, paste(input$x, ":",input$fill),'agesq')
           reg <- lm(reformulate(regterms, input$y), data = CEPRdata)}
         else{
-          regterms <- c(input$x, input$fill)
+          regterms <- c(input$x, input$fill, paste(input$x, ":",input$fill))
           reg <- lm(reformulate(regterms, input$y), data = CEPRdata)}
         tidy(reg)
       }
